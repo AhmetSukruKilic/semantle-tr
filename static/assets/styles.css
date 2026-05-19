@@ -252,3 +252,28 @@ body.dark .gaveup {
 body.dark .weirdWord {
     border-color: #fafafa;
 }
+
+#archive-banner {
+    background: #fff3cd;
+    color: #664d03;
+    border: 1px solid #ffe69c;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 8px;
+    text-align: center;
+}
+
+#archive-banner a {
+    color: #664d03;
+    text-decoration: underline;
+}
+
+body.dark #archive-banner {
+    background: #3a3520;
+    color: #ffe69c;
+    border-color: #5a4d20;
+}
+
+body.dark #archive-banner a {
+    color: #ffe69c;
+}
