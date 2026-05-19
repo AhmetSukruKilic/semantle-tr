@@ -19,9 +19,22 @@ let model = null;
 const now = Date.now() + 10800000;
 const today = Math.floor(now / 86400000);
 const initialDay = 19070;
-const puzzleNumber = (today - initialDay) % secretWords.length;
-const yesterdayPuzzleNumber = (today - initialDay + secretWords.length - 1) % secretWords.length;
+const todayPuzzleNumber = ((today - initialDay) % secretWords.length + secretWords.length) % secretWords.length;
+
+const urlParams = new URLSearchParams(window.location.search);
+const archiveParamRaw = urlParams.get('gun');
+const archiveParamParsed = archiveParamRaw === null ? NaN : parseInt(archiveParamRaw, 10);
+const isArchive = !isNaN(archiveParamParsed);
+const puzzleNumber = isArchive
+    ? ((archiveParamParsed % secretWords.length) + secretWords.length) % secretWords.length
+    : todayPuzzleNumber;
+const yesterdayPuzzleNumber = (puzzleNumber + secretWords.length - 1) % secretWords.length;
+
 const storage = window.localStorage;
+const storageKeyPrefix = isArchive ? `archive_${puzzleNumber}_` : '';
+function gameKey(name) {
+    return storageKeyPrefix + name;
+}
 let caps = 0;
 let warnedCaps = 0;
 let chrono_forward = 1;
@@ -85,7 +98,7 @@ function project_along(v1, v2, t) {
 function share() {
     // We use the stored guesses here, because those are not updated again
     // once you win -- we don't want to include post-win guesses here.
-    const text = solveStory(JSON.parse(storage.getItem("guesses")), puzzleNumber);
+    const text = solveStory(JSON.parse(storage.getItem(gameKey("guesses"))), puzzleNumber);
     const copied = ClipboardJS.copy(text);
 
     if (copied) {
@@ -209,7 +222,10 @@ function solveStory(guesses, puzzleNumber) {
     [similarity, old_guess, percentile, guess_number] = penultimate_guess;
     const penultimate_guess_msg = `Sondan bir önceki tahminimin benzerlik skoru ise ${describe(similarity, percentile)}. `;
 
-    return `Semantle Türkçe ${puzzleNumber} numaralı bulmacayı ${guess_count} tahminde çözdüm. ${first_guess}${first_hit}${penultimate_guess_msg}http://semantle.ozanalpay.com/`;
+    const shareUrl = isArchive
+        ? `http://semantle.ozanalpay.com/?gun=${puzzleNumber}`
+        : `http://semantle.ozanalpay.com/`;
+    return `Semantle Türkçe ${puzzleNumber} numaralı bulmacayı ${guess_count} tahminde çözdüm. ${first_guess}${first_hit}${penultimate_guess_msg}${shareUrl}`;
 }
 
 let Semantle = (function () {
@@ -250,7 +266,14 @@ let Semantle = (function () {
         secret = secretWords[puzzleNumber].toLowerCase();
         const yesterday = secretWords[yesterdayPuzzleNumber].toLowerCase();
 
-        $('#yesterday').innerHTML = `Dünün sözcüğü: <b>"${yesterday}"</b>.`;
+        if (isArchive) {
+            const banner = document.createElement('div');
+            banner.id = 'archive-banner';
+            banner.innerHTML = `<b>Arşiv modu:</b> ${puzzleNumber} numaralı bulmacayı oynuyorsun. <a href="/">Bugünün bulmacasına dön</a>.`;
+            document.body.insertBefore(banner, document.body.firstChild);
+        }
+
+        $('#yesterday').innerHTML = `${isArchive ? 'Bir önceki bulmacanın sözcüğü' : 'Dünün sözcüğü'}: <b>"${yesterday}"</b>.`;
         $('#yesterday2').innerHTML = yesterday;
 
         $('#lower').checked = storage.getItem("lower") == "true";
@@ -275,11 +298,11 @@ let Semantle = (function () {
             // we can live without this in the event that something is broken
         }
 
-        const storagePuzzleNumber = storage.getItem("puzzleNumber");
+        const storagePuzzleNumber = storage.getItem(gameKey("puzzleNumber"));
         if (storagePuzzleNumber != puzzleNumber) {
-            storage.removeItem("guesses");
-            storage.removeItem("winState");
-            storage.setItem("puzzleNumber", puzzleNumber);
+            storage.removeItem(gameKey("guesses"));
+            storage.removeItem(gameKey("winState"));
+            storage.setItem(gameKey("puzzleNumber"), puzzleNumber);
         }
 
         document.querySelectorAll(".dialog-close").forEach((el) => {
@@ -378,11 +401,13 @@ let Semantle = (function () {
                 const newEntry = [similarity, guess, percentile, guessCount];
                 guesses.push(newEntry);
 
-                const stats = getStats();
-                if (!gameOver) {
-                    stats['totalGuesses'] += 1;
+                if (!isArchive) {
+                    const stats = getStats();
+                    if (!gameOver) {
+                        stats['totalGuesses'] += 1;
+                    }
+                    storage.setItem('stats', JSON.stringify(stats));
                 }
-                storage.setItem('stats', JSON.stringify(stats));
             }
             guesses.sort(function (a, b) {
                 return b[0] - a[0]
@@ -404,9 +429,9 @@ let Semantle = (function () {
             return false;
         });
 
-        const winState = storage.getItem("winState");
+        const winState = storage.getItem(gameKey("winState"));
         if (winState != null) {
-            guesses = JSON.parse(storage.getItem("guesses"));
+            guesses = JSON.parse(storage.getItem(gameKey("guesses")));
             for (let guess of guesses) {
                 guessed.add(guess[1]);
             }
@@ -498,13 +523,13 @@ let Semantle = (function () {
     function saveGame(guessCount, winState) {
         // If we are in a tab still open from yesterday, we're done here.
         // Don't save anything because we may overwrite today's game!
-        let savedPuzzleNumber = storage.getItem("puzzleNumber");
+        let savedPuzzleNumber = storage.getItem(gameKey("puzzleNumber"));
         if (savedPuzzleNumber != puzzleNumber) {
             return
         }
 
-        storage.setItem("winState", winState);
-        storage.setItem("guesses", JSON.stringify(guesses));
+        storage.setItem(gameKey("winState"), winState);
+        storage.setItem(gameKey("guesses"), JSON.stringify(guesses));
     }
 
     function getStats() {
@@ -544,23 +569,25 @@ let Semantle = (function () {
     function endGame(won, countStats) {
         let stats;
 
-        stats = getStats();
-        if (countStats) {
-            const onStreak = (stats['lastEnd'] == puzzleNumber - 1);
+        if (!isArchive) {
+            stats = getStats();
+            if (countStats) {
+                const onStreak = (stats['lastEnd'] == puzzleNumber - 1);
 
-            stats['lastEnd'] = puzzleNumber;
-            if (won) {
-                if (onStreak) {
-                    stats['winStreak'] += 1;
+                stats['lastEnd'] = puzzleNumber;
+                if (won) {
+                    if (onStreak) {
+                        stats['winStreak'] += 1;
+                    } else {
+                        stats['winStreak'] = 1;
+                    }
+                    stats['wins'] += 1;
                 } else {
-                    stats['winStreak'] = 1;
+                    stats['winStreak'] = 0;
+                    stats['giveups'] += 1;
                 }
-                stats['wins'] += 1;
-            } else {
-                stats['winStreak'] = 0;
-                stats['giveups'] += 1;
+                storage.setItem("stats", JSON.stringify(stats));
             }
-            storage.setItem("stats", JSON.stringify(stats));
         }
 
         $('#give-up-btn').style = "display:none;";
@@ -574,8 +601,9 @@ let Semantle = (function () {
             response = `<p><b>Pes ettin! Günün sözcüğü ${secret}</b>. Eğer başka sözcüklerle olan benzerliği merak ediyorsan, kelime girmeye devam edebilirsin. Bugünün sözcüğüne en yakın sözcükleri görmek istersen <a href="nearby_1k?word=${secretBase64}">buraya</a> tıklayabilirsin. Yarın görüşmek üzere! </p>`;
         }
 
-        const totalGames = stats['wins'] + stats['giveups'] + stats['abandons'];
-        response += `<br/>
+        if (stats) {
+            const totalGames = stats['wins'] + stats['giveups'] + stats['abandons'];
+            response += `<br/>
 İstatistikler: <br/>
 <table>
 <tr><th>İlk oyun:</th><td>${stats['firstPlay']}</td></tr>
@@ -588,6 +616,7 @@ let Semantle = (function () {
 <tr><th>Bugüne kadarki ortalama tahmin sayısı:</th><td>${(stats['totalGuesses'] / totalGames).toFixed(2)}</td></tr>
 </table>
 `;
+        }
 
         $('#response').innerHTML = response;
 
